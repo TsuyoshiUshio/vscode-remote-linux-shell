@@ -3,7 +3,7 @@
 # Licensed under the MIT License. See https://go.microsoft.com/fwlink/?linkid=2090316 for license information.
 #-------------------------------------------------------------------------------------------------------------
 
-FROM golang:1
+FROM ubuntu:16.04
 
 # Avoid warnings by switching to noninteractive
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,62 +21,71 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends apt-utils dialog 2>&1 \
     #
     # Verify git, process tools, lsb-release (common in install instructions for CLIs) installed
-    && apt-get -y install git iproute2 procps lsb-release \
+    && apt-get -y install git iproute2 procps lsb-release 
     #
-    # Install Go tools w/module support
-    && mkdir -p /tmp/gotools \
-    && cd /tmp/gotools \
-    && GO111MODULE=on go get -v golang.org/x/tools/gopls@latest 2>&1 \
-    && GO111MODULE=on go get -v \
-        honnef.co/go/tools/...@latest \
-        golang.org/x/tools/cmd/gorename@latest \
-        golang.org/x/tools/cmd/goimports@latest \
-        golang.org/x/tools/cmd/guru@latest \
-        golang.org/x/lint/golint@latest \
-        github.com/mdempsky/gocode@latest \
-        github.com/cweill/gotests/...@latest \
-        github.com/haya14busa/goplay/cmd/goplay@latest \
-        github.com/sqs/goreturns@latest \
-        github.com/josharian/impl@latest \
-        github.com/davidrjenni/reftools/cmd/fillstruct@latest \
-        github.com/ramya-rao-a/go-outline@latest  \
-        github.com/acroca/go-symbols@latest  \
-        github.com/godoctor/godoctor@latest  \
-        github.com/rogpeppe/godef@latest  \
-        github.com/zmb3/gogetdoc@latest \
-        github.com/fatih/gomodifytags@latest  \
-        github.com/mgechev/revive@latest  \
-        github.com/go-delve/delve/cmd/dlv@latest 2>&1 \
-    #
-    # Install Go tools w/o module support
-    && go get -v github.com/alecthomas/gometalinter \
-        github.com/uudashr/gopkgs/cmd/gopkgs 2>&1 \
-    #
-    # Install gocode-gomod
-    && go get -x -d github.com/stamblerre/gocode 2>&1 \
-    && go build -o gocode-gomod github.com/stamblerre/gocode \
-    && mv gocode-gomod $GOPATH/bin/ \
-    #
-    # Install golangci-lint
-    && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin 2>&1 \
-    #
-    # Create a non-root user to use if preferred - see https://aka.ms/vscode-remote/containers/non-root-user.
-    && groupadd --gid $USER_GID $USERNAME \
+
+# Configure tools. 
+RUN apt-get update
+RUN apt-get install -y gnupg
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y curl
+RUN apt-get install software-properties-common -y
+
+# Get the Microsoft signing key
+RUN curl -L https://packages.microsoft.com/keys/microsoft.asc 2>&1 | apt-key add -
+
+# Get the Docker GPG key
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg 2>&1 | apt-key add -
+# sudo apt-key adv --keyserver packages.microsoft.com --recv-keys 52E16F86FEE04B979B07E28DB02C46DF417A0893
+
+# Azure-cli
+RUN add-apt-repository "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ xenial main"
+# Add Docker source
+RUN add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable"    
+
+############### Installing Helm ###############
+RUN curl -s -O https://storage.googleapis.com/kubernetes-helm/helm-v2.14.3-linux-amd64.tar.gz
+RUN tar -zxvf helm-v2.14.3-linux-amd64.tar.gz
+RUN mv linux-amd64/helm /usr/local/bin/helm
+
+############### Installing kubectl ###############
+RUN curl -s -LO https://storage.googleapis.com/kubernetes-release/release/v1.13.11/bin/linux/amd64/kubectl
+RUN chmod +x ./kubectl
+RUN mv ./kubectl /usr/local/bin/kubectl
+
+############### Installing Packages ###############
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y apt-transport-https libssl-dev
+RUN DEBIAN_FRONTEND=noninteractive apt-get update
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y zip azure-cli=2.0.78-1~xenial
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce
+RUN DEBIAN_FRONTEND=noninteractive apt-get install vim -y
+
+# Create a non-root user to use if preferred - see https://aka.ms/vscode-remote/containers/non-root-user.
+RUN  groupadd --gid $USER_GID $USERNAME \
     && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME \
     # [Optional] Add sudo support
     && apt-get install -y sudo \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME \
-    # Add write permission for /go/pkg
-    && chmod -R a+rwX /go/pkg \
-    #
-    # Clean up
-    && apt-get autoremove -y \
-    && apt-get clean -y \
-    && rm -rf /var/lib/apt/lists/* /go/src /tmp/gotools
+    && chmod 0440 /etc/sudoers.d/$USERNAME  
 
-# Update this to "on" or "off" as appropriate
-ENV GO111MODULE=auto
+############### Locale Settings ###############
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y locales
+RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+# Add Azure DevOps plugin for AzrureCLI
+RUN az extension add --name azure-devops
+
+ENV DOCKER_HOST tcp://host.docker.internal:2375
+    
+# Clean up
+RUN apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/* 
+
 
 # Switch back to dialog for any ad-hoc use of apt-get
 ENV DEBIAN_FRONTEND=dialog
