@@ -76,9 +76,6 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-# Add Azure DevOps plugin for AzrureCLI
-RUN az extension add --name azure-devops
-
 ENV DOCKER_HOST tcp://host.docker.internal:2375
     
 # Clean up
@@ -89,3 +86,7 @@ RUN apt-get autoremove -y \
 
 # Switch back to dialog for any ad-hoc use of apt-get
 ENV DEBIAN_FRONTEND=dialog
+
+# Add Azure DevOps plugin for AzrureCLI
+USER $USERNAME
+RUN az extension add --name azure-devops
